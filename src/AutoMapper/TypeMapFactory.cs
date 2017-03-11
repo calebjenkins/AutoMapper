@@ -9,22 +9,20 @@ namespace AutoMapper
 
     public class TypeMapFactory
     {
-        public TypeMap CreateTypeMap(Type sourceType, Type destinationType, IProfileConfiguration options, MemberList memberList)
+        public TypeMap CreateTypeMap(Type sourceType, Type destinationType, ProfileMap options, MemberList memberList)
         {
-            var sourceTypeInfo = new TypeDetails(sourceType, options);
-            var destTypeInfo = new TypeDetails(destinationType, options);
+            var sourceTypeInfo = options.CreateTypeDetails(sourceType);
+            var destTypeInfo = options.CreateTypeDetails(destinationType);
 
             var typeMap = new TypeMap(sourceTypeInfo, destTypeInfo, memberList, options);
 
             foreach (var destProperty in destTypeInfo.PublicWriteAccessors)
             {
-                var resolvers = new LinkedList<IValueResolver>();
+                var resolvers = new LinkedList<MemberInfo>();
 
-                if (MapDestinationPropertyToSource(options, sourceTypeInfo, destProperty.GetMemberType(), destProperty.Name, resolvers))
+                if (MapDestinationPropertyToSource(options, sourceTypeInfo, destProperty.DeclaringType, destProperty.GetMemberType(), destProperty.Name, resolvers))
                 {
-                    var destPropertyAccessor = destProperty.ToMemberAccessor();
-
-                    typeMap.AddPropertyMap(destPropertyAccessor, resolvers);
+                    typeMap.AddPropertyMap(destProperty, resolvers);
                 }
             }
             if (!destinationType.IsAbstract() && destinationType.IsClass())
@@ -40,35 +38,34 @@ namespace AutoMapper
             return typeMap;
         }
 
-        private bool MapDestinationPropertyToSource(IProfileConfiguration options, TypeDetails sourceTypeInfo, Type destType, string destMemberInfo, LinkedList<IValueResolver> members)
+        private bool MapDestinationPropertyToSource(ProfileMap options, TypeDetails sourceTypeInfo, Type destType, Type destMemberType, string destMemberInfo, LinkedList<MemberInfo> members)
         {
-            return options.MemberConfigurations.Any(_ => _.MapDestinationPropertyToSource(options, sourceTypeInfo, destType, destMemberInfo, members));
+            return options.MemberConfigurations.Any(_ => _.MapDestinationPropertyToSource(options, sourceTypeInfo, destType, destMemberType, destMemberInfo, members));
         }
 
-        private bool MapDestinationCtorToSource(TypeMap typeMap, ConstructorInfo destCtor, TypeDetails sourceTypeInfo, IProfileConfiguration options)
+        private bool MapDestinationCtorToSource(TypeMap typeMap, ConstructorInfo destCtor, TypeDetails sourceTypeInfo, ProfileMap options)
         {
-            var parameters = new List<ConstructorParameterMap>();
             var ctorParameters = destCtor.GetParameters();
 
             if (ctorParameters.Length == 0 || !options.ConstructorMappingEnabled)
                 return false;
 
+            var ctorMap = new ConstructorMap(destCtor, typeMap);
+
             foreach (var parameter in ctorParameters)
             {
-                var resolvers = new LinkedList<IValueResolver>();
+                var resolvers = new LinkedList<MemberInfo>();
 
-                var canResolve = MapDestinationPropertyToSource(options, sourceTypeInfo, parameter.GetType(), parameter.Name, resolvers);
+                var canResolve = MapDestinationPropertyToSource(options, sourceTypeInfo, destCtor.DeclaringType, parameter.GetType(), parameter.Name, resolvers);
                 if(!canResolve && parameter.HasDefaultValue)
                 {
                     canResolve = true;
                 }
 
-                var param = new ConstructorParameterMap(parameter, resolvers.ToArray(), canResolve);
-
-                parameters.Add(param);
+                ctorMap.AddParameter(parameter, resolvers.ToArray(), canResolve);
             }
 
-            typeMap.AddConstructorMap(destCtor, parameters);
+            typeMap.ConstructorMap = ctorMap;
 
             return true;
         }

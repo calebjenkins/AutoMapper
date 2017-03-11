@@ -1,45 +1,45 @@
 namespace AutoMapper.QueryableExtensions.Impl
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Linq.Expressions;
-    using System.Reflection;
+    using System.Reflection;    
 
     public class MemberGetterExpressionResultConverter : IExpressionResultConverter
     {
-        public ExpressionResolutionResult GetExpressionResolutionResult(ExpressionResolutionResult expressionResolutionResult, PropertyMap propertyMap, IValueResolver valueResolver)
+        public ExpressionResolutionResult GetExpressionResolutionResult(ExpressionResolutionResult expressionResolutionResult, PropertyMap propertyMap)
         {
-            return ExpressionResolutionResult(expressionResolutionResult, valueResolver);
+            return ExpressionResolutionResult(expressionResolutionResult, propertyMap.SourceMembers);
         }
 
         public ExpressionResolutionResult GetExpressionResolutionResult(ExpressionResolutionResult expressionResolutionResult,
-            ConstructorParameterMap propertyMap, IValueResolver valueResolver)
+            ConstructorParameterMap propertyMap)
         {
-            return ExpressionResolutionResult(expressionResolutionResult, valueResolver);
+            return ExpressionResolutionResult(expressionResolutionResult, propertyMap.SourceMembers);
         }
 
         private static ExpressionResolutionResult ExpressionResolutionResult(
-            ExpressionResolutionResult expressionResolutionResult, IValueResolver valueResolver)
+            ExpressionResolutionResult expressionResolutionResult, IEnumerable<MemberInfo> sourceMembers)
         {
-            Expression currentChild = expressionResolutionResult.ResolutionExpression;
-            Type currentChildType;
-            var getter = (IMemberGetter) valueResolver;
-            var memberInfo = getter.MemberInfo;
-
-            var propertyInfo = memberInfo as PropertyInfo;
-            if (propertyInfo != null)
-            {
-                currentChild = Expression.Property(currentChild, propertyInfo);
-                currentChildType = propertyInfo.PropertyType;
-            }
-            else
-                currentChildType = currentChild.Type;
-
-            return new ExpressionResolutionResult(currentChild, currentChildType);
+            return sourceMembers.Aggregate(expressionResolutionResult, ExpressionResolutionResult);
         }
 
-        public bool CanGetExpressionResolutionResult(ExpressionResolutionResult expressionResolutionResult, IValueResolver valueResolver)
+        private static ExpressionResolutionResult ExpressionResolutionResult(
+            ExpressionResolutionResult expressionResolutionResult, MemberInfo getter)
         {
-            return valueResolver is IMemberGetter;
+            var member = Expression.MakeMemberAccess(expressionResolutionResult.ResolutionExpression, getter);
+            return new ExpressionResolutionResult(member, member.Type);
+        }
+
+        public bool CanGetExpressionResolutionResult(ExpressionResolutionResult expressionResolutionResult, PropertyMap propertyMap)
+        {
+            return propertyMap.SourceMembers.Any();
+        }
+
+        public bool CanGetExpressionResolutionResult(ExpressionResolutionResult expressionResolutionResult, ConstructorParameterMap propertyMap)
+        {
+            return propertyMap.SourceMembers.Any();
         }
     }
 }

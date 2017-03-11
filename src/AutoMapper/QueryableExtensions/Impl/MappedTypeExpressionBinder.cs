@@ -1,7 +1,6 @@
-using System.Collections.Concurrent;
-
 namespace AutoMapper.QueryableExtensions.Impl
 {
+    using System.Collections.Generic;
     using System.Linq.Expressions;
 
     public class MappedTypeExpressionBinder : IExpressionBinder
@@ -11,12 +10,12 @@ namespace AutoMapper.QueryableExtensions.Impl
             return propertyTypeMap != null && propertyTypeMap.CustomProjection == null;
         }
 
-        public MemberAssignment Build(IConfigurationProvider configuration, PropertyMap propertyMap, TypeMap propertyTypeMap, ExpressionRequest request, ExpressionResolutionResult result, ConcurrentDictionary<ExpressionRequest, int> typePairCount)
+        public MemberAssignment Build(IConfigurationProvider configuration, PropertyMap propertyMap, TypeMap propertyTypeMap, ExpressionRequest request, ExpressionResolutionResult result, IDictionary<ExpressionRequest, int> typePairCount)
         {
             return BindMappedTypeExpression(configuration, propertyMap, request, result, typePairCount);
         }
 
-        private static MemberAssignment BindMappedTypeExpression(IConfigurationProvider configuration, PropertyMap propertyMap, ExpressionRequest request, ExpressionResolutionResult result, ConcurrentDictionary<ExpressionRequest, int> typePairCount)
+        private static MemberAssignment BindMappedTypeExpression(IConfigurationProvider configuration, PropertyMap propertyMap, ExpressionRequest request, ExpressionResolutionResult result, IDictionary<ExpressionRequest, int> typePairCount)
         {
             var transformedExpression = configuration.ExpressionBuilder.CreateMapExpression(request, result.ResolutionExpression, typePairCount);
             if(transformedExpression == null)
@@ -25,7 +24,7 @@ namespace AutoMapper.QueryableExtensions.Impl
             }
             // Handles null source property so it will not create an object with possible non-nullable propeerties 
             // which would result in an exception.
-            if (configuration.AllowNullDestinationValues)
+            if (propertyMap.TypeMap.Profile.AllowNullDestinationValues && !propertyMap.AllowNull)
             {
                 var expressionNull = Expression.Constant(null, propertyMap.DestinationPropertyType);
                 transformedExpression =
@@ -33,7 +32,7 @@ namespace AutoMapper.QueryableExtensions.Impl
                         transformedExpression, expressionNull);
             }
 
-            return Expression.Bind(propertyMap.DestinationProperty.MemberInfo, transformedExpression);
+            return Expression.Bind(propertyMap.DestinationProperty, transformedExpression);
         }
     }
 }

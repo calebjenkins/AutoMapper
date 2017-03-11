@@ -8,6 +8,10 @@
     /// </summary>
     public interface IMappingOperationOptions
     {
+        T CreateInstance<T>();
+
+        Func<Type, object> ServiceCtor { get; }
+
         /// <summary>
         /// Construct services using this callback. Use this for child/nested containers
         /// </summary>
@@ -15,14 +19,9 @@
         void ConstructServicesUsing(Func<Type, object> constructor);
 
         /// <summary>
-        /// Add context items to be accessed at map time inside an <see cref="IValueResolver"/> or <see cref="ITypeConverter{TSource, TDestination}"/>
+        /// Add context items to be accessed at map time inside an <see cref="IValueResolver{TSource, TDestination, TMember}"/> or <see cref="ITypeConverter{TSource, TDestination}"/>
         /// </summary>
         IDictionary<string, object> Items { get; }
-
-        /// <summary>
-        /// Disable the cache used to re-use destination instances based on equality
-        /// </summary>
-        bool DisableCache { get; set; }
 
         /// <summary>
         /// Execute a custom function to the source and/or destination types before member mapping

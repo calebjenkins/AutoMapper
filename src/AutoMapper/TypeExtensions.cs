@@ -3,26 +3,27 @@ namespace AutoMapper
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Linq.Expressions;
     using System.Reflection;
-#if !PORTABLE
+#if NET45
     using System.Reflection.Emit;
 #endif
 
     internal static class TypeExtensions
     {
-        public static Func<ResolutionContext, TServiceType> BuildCtor<TServiceType>(this Type type)
+        public static bool Has<TAttribute>(this Type type) where TAttribute : Attribute
         {
-            return context =>
-            {
-                if (type.IsGenericTypeDefinition())
-                {
-                    type = type.MakeGenericType(context.SourceType.GetTypeInfo().GenericTypeArguments);
-                }
+            return type.GetTypeInfo().IsDefined(typeof(TAttribute), inherit: false);
+        }
 
-                var obj = context.Options.ServiceCtor.Invoke(type);
+        public static Type GetGenericTypeDefinitionIfGeneric(this Type type)
+        {
+            return type.IsGenericType() ? type.GetGenericTypeDefinition() : type;
+        }
 
-                return (TServiceType)obj;
-            };
+        public static Type[] GetGenericArguments(this Type type)
+        {
+            return type.GetTypeInfo().GenericTypeArguments;
         }
 
         public static Type[] GetGenericParameters(this Type type)
@@ -35,7 +36,7 @@ namespace AutoMapper
             return type.GetTypeInfo().DeclaredConstructors;
         }
 
-#if !PORTABLE
+#if NET45
         public static Type CreateType(this TypeBuilder type)
         {
             return type.CreateTypeInfo().AsType();
@@ -47,7 +48,6 @@ namespace AutoMapper
             return type.GetTypeInfo().DeclaredMembers;
         }
 
-#if PORTABLE
         public static IEnumerable<MemberInfo> GetAllMembers(this Type type)
         {
             while (true)
@@ -70,29 +70,34 @@ namespace AutoMapper
         {
             return type.GetAllMembers().Where(mi => mi.Name == name).ToArray();
         }
-#endif
 
         public static IEnumerable<MethodInfo> GetDeclaredMethods(this Type type)
         {
             return type.GetTypeInfo().DeclaredMethods;
         }
 
-#if PORTABLE
-        public static MethodInfo GetMethod(this Type type, string name)
+        public static MethodInfo GetDeclaredMethod(this Type type, string name)
         {
             return type.GetAllMethods().FirstOrDefault(mi => mi.Name == name);
         }
 
-        public static MethodInfo GetMethod(this Type type, string name, Type[] parameters)
+        public static MethodInfo GetDeclaredMethod(this Type type, string name, Type[] parameters)
         {
-            //a.Length == b.Length && a.Intersect(b).Count() == a.Length
-            return type.GetAllMethods()
+            return type
+                .GetAllMethods()
                 .Where(mi => mi.Name == name)
                 .Where(mi => mi.GetParameters().Length == parameters.Length)
-                .Where(mi => mi.GetParameters().Select(pi => pi.ParameterType).Intersect(parameters).Count() == parameters.Length)
-                .FirstOrDefault();
+                .FirstOrDefault(mi => mi.GetParameters().Select(pi => pi.ParameterType).SequenceEqual(parameters));
         }
-#endif
+
+        public static ConstructorInfo GetDeclaredConstructor(this Type type, Type[] parameters)
+        {
+            return type
+                .GetTypeInfo()
+                .DeclaredConstructors
+                .Where(mi => mi.GetParameters().Length == parameters.Length)
+                .FirstOrDefault(mi => mi.GetParameters().Select(pi => pi.ParameterType).SequenceEqual(parameters));
+        }
 
         public static IEnumerable<MethodInfo> GetAllMethods(this Type type)
         {
@@ -104,12 +109,10 @@ namespace AutoMapper
             return type.GetTypeInfo().DeclaredProperties;
         }
 
-#if PORTABLE
-        public static PropertyInfo GetProperty(this Type type, string name)
+        public static PropertyInfo GetDeclaredProperty(this Type type, string name)
         {
-            return type.GetTypeInfo().DeclaredProperties.FirstOrDefault(mi => mi.Name == name);
+            return type.GetTypeInfo().GetDeclaredProperty(name);
         }
-#endif
 
         public static object[] GetCustomAttributes(this Type type, Type attributeType, bool inherit)
         {
@@ -130,13 +133,21 @@ namespace AutoMapper
 
         public static bool IsStatic(this MemberInfo memberInfo)
         {
-            return (memberInfo as FieldInfo).IsStatic() || (memberInfo as PropertyInfo).IsStatic();
+            return (memberInfo as FieldInfo).IsStatic() 
+                || (memberInfo as PropertyInfo).IsStatic()
+                || ((memberInfo as MethodInfo)?.IsStatic
+                ?? false);
         }
 
         public static bool IsPublic(this PropertyInfo propertyInfo)
         {
             return (propertyInfo?.GetGetMethod(true)?.IsPublic ?? false)
                 || (propertyInfo?.GetSetMethod(true)?.IsPublic ?? false);
+        }
+
+        public static IEnumerable<PropertyInfo> PropertiesWithAnInaccessibleSetter(this Type type)
+        {
+            return type.GetDeclaredProperties().Where(pm => pm.HasAnInaccessibleSetter());
         }
 
         public static bool HasAnInaccessibleSetter(this PropertyInfo property)
@@ -168,12 +179,10 @@ namespace AutoMapper
             return type.GetTypeInfo().BaseType;
         }
 
-#if PORTABLE
         public static bool IsAssignableFrom(this Type type, Type other)
         {
             return type.GetTypeInfo().IsAssignableFrom(other.GetTypeInfo());
         }
-#endif
 
         public static bool IsAbstract(this Type type)
         {
@@ -222,12 +231,17 @@ namespace AutoMapper
 
         public static bool IsInstanceOfType(this Type type, object o)
         {
-            return o != null && type.IsAssignableFrom(o.GetType());
+            return o != null && type.GetTypeInfo().IsAssignableFrom(o.GetType().GetTypeInfo());
         }
 
         public static ConstructorInfo[] GetConstructors(this Type type)
         {
             return type.GetTypeInfo().DeclaredConstructors.ToArray();
+        }
+
+        public static PropertyInfo[] GetProperties(this Type type)
+        {
+            return type.GetRuntimeProperties().ToArray();
         }
 
         public static MethodInfo GetGetMethod(this PropertyInfo propertyInfo, bool ignored)

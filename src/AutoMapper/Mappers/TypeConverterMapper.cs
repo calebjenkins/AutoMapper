@@ -1,4 +1,7 @@
-#if !PORTABLE
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
+
 namespace AutoMapper.Mappers
 {
     using System;
@@ -7,33 +10,31 @@ namespace AutoMapper.Mappers
 
     public class TypeConverterMapper : IObjectMapper
     {
-        public object Map(ResolutionContext context)
+        private static TDestination Map<TSource, TDestination>(TSource source)
         {
-            if (context.SourceValue == null)
+            var typeConverter = GetTypeConverter(typeof(TSource));
+
+            if (typeConverter.CanConvertTo(typeof(TDestination)))
             {
-                return context.Engine.CreateObject(context);
+                return (TDestination)typeConverter.ConvertTo(source, typeof(TDestination));
             }
-            Func<object> converter = GetConverter(context);
-            return converter?.Invoke();
+
+            if (typeof(TDestination).IsNullableType() &&
+                typeConverter.CanConvertTo(Nullable.GetUnderlyingType(typeof(TDestination))))
+            {
+                return (TDestination)typeConverter.ConvertTo(source, Nullable.GetUnderlyingType(typeof(TDestination)));
+            }
+
+            typeConverter = GetTypeConverter(typeof(TDestination));
+            if (typeConverter.CanConvertFrom(typeof(TSource)))
+            {
+                return (TDestination)typeConverter.ConvertFrom(source);
+            }
+
+            return default(TDestination);
         }
 
-        private static Func<object> GetConverter(ResolutionContext context)
-        {
-            TypeConverter typeConverter = GetTypeConverter(context.SourceType);
-            if (typeConverter.CanConvertTo(context.DestinationType))
-                return () => typeConverter.ConvertTo(context.SourceValue, context.DestinationType);
-            if (context.DestinationType.IsNullableType() &&
-                typeConverter.CanConvertTo(Nullable.GetUnderlyingType(context.DestinationType)))
-                return
-                    () =>
-                        typeConverter.ConvertTo(context.SourceValue, Nullable.GetUnderlyingType(context.DestinationType));
-
-            typeConverter = GetTypeConverter(context.DestinationType);
-            if (typeConverter.CanConvertFrom(context.SourceType))
-                return () => typeConverter.ConvertFrom(context.SourceValue);
-
-            return null;
-        }
+        private static readonly MethodInfo MapMethodInfo = typeof(TypeConverterMapper).GetDeclaredMethod(nameof(Map));
 
         public bool IsMatch(TypePair context)
         {
@@ -46,10 +47,14 @@ namespace AutoMapper.Mappers
                     destTypeConverter.CanConvertFrom(context.SourceType));
         }
 
+        public Expression MapExpression(IConfigurationProvider configurationProvider, ProfileMap profileMap, PropertyMap propertyMap, Expression sourceExpression, Expression destExpression, Expression contextExpression)
+        {
+            return Expression.Call(null, MapMethodInfo.MakeGenericMethod(sourceExpression.Type, destExpression.Type), sourceExpression);
+        }
+
         private static TypeConverter GetTypeConverter(Type type)
         {
             return TypeDescriptor.GetConverter(type);
         }
     }
 }
-#endif

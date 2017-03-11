@@ -1,21 +1,17 @@
+using System.Linq.Expressions;
+using System.Reflection;
+using AutoMapper.Execution;
+
 namespace AutoMapper.Mappers
 {
     using System;
     using System.Linq;
+    using static Expression;
+    using static ExpressionExtensions;
 
     public class FlagsEnumMapper : IObjectMapper
     {
-        public object Map(ResolutionContext context)
-        {
-            Type enumDestType = TypeHelper.GetEnumerationType(context.DestinationType);
-
-            if (context.SourceValue == null)
-            {
-                return context.Engine.CreateObject(context);
-            }
-
-            return Enum.Parse(enumDestType, context.SourceValue.ToString(), true);
-        }
+        private static readonly MethodInfo EnumParseMethod = Method(() => Enum.Parse(null, null, true));
 
         public bool IsMatch(TypePair context)
         {
@@ -26,6 +22,21 @@ namespace AutoMapper.Mappers
                    && destEnumType != null
                    && sourceEnumType.GetCustomAttributes(typeof (FlagsAttribute), false).Any()
                    && destEnumType.GetCustomAttributes(typeof (FlagsAttribute), false).Any();
+        }
+
+        public Expression MapExpression(IConfigurationProvider configurationProvider, ProfileMap profileMap, PropertyMap propertyMap, Expression sourceExpression, Expression destExpression, Expression contextExpression)
+        {
+            return Condition(
+                Equal(ToObject(sourceExpression), Constant(null)),
+                Default(destExpression.Type),
+                ToType(
+                    Call(EnumParseMethod, 
+                        Constant(Nullable.GetUnderlyingType(destExpression.Type) ?? destExpression.Type),
+                        Call(sourceExpression, sourceExpression.Type.GetDeclaredMethod("ToString")),
+                        Constant(true)
+                    ),
+                    destExpression.Type
+                ));
         }
     }
 }

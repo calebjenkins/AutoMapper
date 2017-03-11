@@ -20,4 +20,10 @@ First, [install NuGet](http://docs.nuget.org/docs/start-here/installing-nuget). 
 
     PM> Install-Package AutoMapper
 
-AutoMapper is Copyright &copy; 2008-2012 [Jimmy Bogard](http://jimmybogard.lostechies.com) and other contributors under the [MIT license](LICENSE.txt).
+Do you have an issue?
+--------------------------------
+First check if it's already fixed by trying the [MyGet build](https://github.com/AutoMapper/AutoMapper/wiki/The-MyGet-build).
+
+You might want to know exactly what [your mapping does](https://github.com/AutoMapper/AutoMapper/wiki/Understanding-your-mapping) at runtime.
+
+AutoMapper is Copyright &copy; 2008-2016 [Jimmy Bogard](http://jimmybogard.lostechies.com) and other contributors under the [MIT license](LICENSE.txt).

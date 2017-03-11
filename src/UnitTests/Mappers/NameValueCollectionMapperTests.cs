@@ -1,5 +1,4 @@
-﻿#if !PORTABLE
-using System;
+﻿using System;
 using System.Collections.Specialized;
 using AutoMapper.Mappers;
 using Should;
@@ -49,10 +48,10 @@ namespace AutoMapper.UnitTests.Mappers
             [Fact]
             public void ReturnsNullIfSourceValueIsNull()
             {
-                var rc = new ResolutionContext(null, null, new NameValueCollection(), typeof(NameValueCollection), typeof(NameValueCollection), null, new MappingEngine(null, null));
-                var nvcm = new NameValueCollectionMapper();
+                var config = new MapperConfiguration(_ => { });
+                IMapper mapper = new Mapper(config);
 
-                var result = nvcm.Map(rc);
+                var result = mapper.Map((NameValueCollection)null, new NameValueCollection());
 
                 result.ShouldBeNull();
             }
@@ -60,11 +59,10 @@ namespace AutoMapper.UnitTests.Mappers
             [Fact]
             public void ReturnsEmptyCollectionWhenSourceCollectionIsEmpty()
             {
-                var sourceValue = new NameValueCollection();
-                var rc = new ResolutionContext(null, sourceValue, new NameValueCollection(), typeof(NameValueCollection), typeof(NameValueCollection), null, new MappingEngine(null, null));
-                var nvcm = new NameValueCollectionMapper();
+                var config = new MapperConfiguration(_ => { });
+                IMapper mapper = new Mapper(config);
 
-                var result = nvcm.Map(rc) as NameValueCollection;
+                var result = mapper.Map(new NameValueCollection(), (NameValueCollection)null);
 
                 result.ShouldBeEmpty(); 
             }
@@ -72,12 +70,11 @@ namespace AutoMapper.UnitTests.Mappers
             [Fact]
             public void ReturnsMappedObjectWithExpectedValuesWhenSourceCollectionHasOneItem()
             {
+                var config = new MapperConfiguration(_ => { });
+                IMapper mapper = new Mapper(config);
                 var sourceValue = new NameValueCollection() { { "foo", "bar" } };
-                var rc = new ResolutionContext(null, sourceValue, new NameValueCollection(), typeof(NameValueCollection), typeof(NameValueCollection), null, new MappingEngine(null, null));
 
-                var nvcm = new NameValueCollectionMapper();
-
-                var result = nvcm.Map(rc) as NameValueCollection;
+                var result = mapper.Map(sourceValue, new NameValueCollection());
 
                 1.ShouldEqual(result.Count);
                 "foo".ShouldEqual(result.AllKeys[0]);
@@ -87,4 +84,3 @@ namespace AutoMapper.UnitTests.Mappers
         
     }
 }
-#endif

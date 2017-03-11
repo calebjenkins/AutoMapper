@@ -4,7 +4,6 @@
     using System.Collections.Generic;
     using System.Linq.Expressions;
     using System.Linq;
-    using Execution;
 
     public interface ICtorParamConfigurationExpression<TSource>
     {
@@ -14,6 +13,18 @@
         /// <typeparam name="TMember">Member type</typeparam>
         /// <param name="sourceMember">Member expression</param>
         void MapFrom<TMember>(Expression<Func<TSource, TMember>> sourceMember);
+
+        /// <summary>
+        /// Map constructor parameter from custom func
+        /// </summary>
+        /// <param name="resolver">Custom func</param>
+        void ResolveUsing<TMember>(Func<TSource, TMember> resolver);
+
+        /// <summary>
+        /// Map constructor parameter from custom func that has access to <see cref="ResolutionContext"/>
+        /// </summary>
+        /// <param name="resolver">Custom func</param>
+        void ResolveUsing<TMember>(Func<TSource, ResolutionContext, TMember> resolver);
     }
 
     public class CtorParamConfigurationExpression<TSource> : ICtorParamConfigurationExpression<TSource>
@@ -28,36 +39,39 @@
 
         public void MapFrom<TMember>(Expression<Func<TSource, TMember>> sourceMember)
         {
-            var visitor = new MemberInfoFinderVisitor();
-
-            visitor.Visit(sourceMember);
-
-            _ctorParamActions.Add(cpm => cpm.ResolveUsing(visitor.Members));
+            _ctorParamActions.Add(cpm => cpm.CustomExpression = sourceMember);
         }
 
-        private class MemberInfoFinderVisitor : ExpressionVisitor
+        public void ResolveUsing<TMember>(Func<TSource, TMember> resolver)
         {
-            private readonly List<IMemberGetter> _members = new List<IMemberGetter>();
+            Expression<Func<TSource, ResolutionContext, TMember>> resolverExpression = (src, ctxt) => resolver(src);
+            _ctorParamActions.Add(cpm => cpm.CustomValueResolver = resolverExpression);
+        }
 
-            protected override Expression VisitMember(MemberExpression node)
-            {
-                _members.Add(node.Member.ToMemberGetter());
-
-                return base.VisitMember(node);
-            }
-
-            public IEnumerable<IMemberGetter> Members => _members;
+        public void ResolveUsing<TMember>(Func<TSource, ResolutionContext, TMember> resolver)
+        {
+            Expression<Func<TSource, ResolutionContext, TMember>> resolverExpression = (src, ctxt) => resolver(src, ctxt);
+            _ctorParamActions.Add(cpm => cpm.CustomValueResolver = resolverExpression);
         }
 
         public void Configure(TypeMap typeMap)
         {
-            var param = typeMap.ConstructorMap.CtorParams.Single(p => p.Parameter.Name == _ctorParamName);
+            var ctorParams = typeMap.ConstructorMap?.CtorParams;
+            if (ctorParams == null)
+            {
+                throw new AutoMapperConfigurationException($"The type {typeMap.Types.DestinationType.Name} does not have a constructor.\n{typeMap.Types.DestinationType.FullName}");
+            }
 
-            param.CanResolve = true;
+            var parameter = ctorParams.SingleOrDefault(p => p.Parameter.Name == _ctorParamName);
+            if (parameter == null)
+            {
+                throw new AutoMapperConfigurationException($"{typeMap.Types.DestinationType.Name} does not have a constructor with a parameter named '{_ctorParamName}'.\n{typeMap.Types.DestinationType.FullName}");
+            }
+            parameter.CanResolve = true;
 
             foreach (var action in _ctorParamActions)
             {
-                action(param);
+                action(parameter);
             }
         }
     }

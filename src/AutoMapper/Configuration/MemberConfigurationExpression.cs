@@ -2,169 +2,254 @@ namespace AutoMapper.Configuration
 {
     using System;
     using System.Collections.Generic;
+    using System.Reflection;
     using System.Linq;
     using System.Linq.Expressions;
-    using System.Reflection;
-    using Execution;
 
-    public class MemberConfigurationExpression<TSource> : IMemberConfigurationExpression<TSource>
+    public class MemberConfigurationExpression<TSource, TDestination, TMember> : IMemberConfigurationExpression<TSource, TDestination, TMember>, IPropertyMapConfiguration
     {
-        private readonly IMemberAccessor _destinationMember;
+        private readonly MemberInfo _destinationMember;
         private readonly Type _sourceType;
-        private readonly List<Action<PropertyMap>> _propertyMapActions = new List<Action<PropertyMap>>();
+        protected List<Action<PropertyMap>> PropertyMapActions { get; } = new List<Action<PropertyMap>>();
 
-        public MemberConfigurationExpression(IMemberAccessor destinationMember, Type sourceType)
+        public MemberConfigurationExpression(MemberInfo destinationMember, Type sourceType)
         {
             _destinationMember = destinationMember;
             _sourceType = sourceType;
         }
 
+        public MemberInfo DestinationMember => _destinationMember;
+
+        public void MapAtRuntime()
+        {
+            PropertyMapActions.Add(pm => pm.Inline = false);
+        }
+
         public void NullSubstitute(object nullSubstitute)
         {
-            _propertyMapActions.Add(pm => pm.SetNullSubstitute(nullSubstitute));
+            PropertyMapActions.Add(pm => pm.NullSubstitute = nullSubstitute);
         }
 
-        public IResolverConfigurationExpression<TSource, TValueResolver> ResolveUsing<TValueResolver>() where TValueResolver : IValueResolver
+        public void ResolveUsing<TValueResolver>() 
+            where TValueResolver : IValueResolver<TSource, TDestination, TMember>
         {
-            var resolver = new DeferredInstantiatedResolver(typeof(TValueResolver).BuildCtor<IValueResolver>());
+            var config = new ValueResolverConfiguration(typeof(TValueResolver), typeof(IValueResolver<TSource, TDestination, TMember>));
 
-            ResolveUsing(resolver);
-
-            var expression = new ResolutionExpression<TSource, TValueResolver>(_sourceType);
-
-            _propertyMapActions.Add(pm => expression.Configure(pm));
-
-            return expression;
+            PropertyMapActions.Add(pm => pm.ValueResolverConfig = config);
         }
 
-        public IResolverConfigurationExpression<TSource> ResolveUsing(Type valueResolverType)
+        public void ResolveUsing<TValueResolver, TSourceMember>(Expression<Func<TSource, TSourceMember>> sourceMember)
+            where TValueResolver : IMemberValueResolver<TSource, TDestination, TSourceMember, TMember>
         {
-            var resolver = new DeferredInstantiatedResolver(valueResolverType.BuildCtor<IValueResolver>());
+            var config = new ValueResolverConfiguration(typeof(TValueResolver), typeof(IMemberValueResolver<TSource, TDestination, TSourceMember, TMember>))
+            {
+                SourceMember = sourceMember
+            };
 
-            ResolveUsing(resolver);
-
-            var expression = new ResolutionExpression<TSource>(_sourceType);
-
-            _propertyMapActions.Add(pm => expression.Configure(pm));
-
-            return expression;
+            PropertyMapActions.Add(pm => pm.ValueResolverConfig = config);
         }
 
-        public IResolutionExpression<TSource> ResolveUsing(IValueResolver valueResolver)
+        public void ResolveUsing<TValueResolver, TSourceMember>(string sourceMemberName)
+            where TValueResolver : IMemberValueResolver<TSource, TDestination, TSourceMember, TMember>
         {
-            _propertyMapActions.Add(pm => pm.AssignCustomValueResolver(valueResolver));
+            var config = new ValueResolverConfiguration(typeof(TValueResolver), typeof(IMemberValueResolver<TSource, TDestination, TSourceMember, TMember>))
+            {
+                SourceMemberName = sourceMemberName
+            };
 
-            var expression = new ResolutionExpression<TSource>(_sourceType);
-
-            _propertyMapActions.Add(pm => expression.Configure(pm));
-
-            return expression;
+            PropertyMapActions.Add(pm => pm.ValueResolverConfig = config);
         }
 
-        public void ResolveUsing(Func<TSource, object> resolver)
+        public void ResolveUsing(IValueResolver<TSource, TDestination, TMember> valueResolver)
         {
-            _propertyMapActions.Add(pm => pm.AssignCustomValueResolver(new DelegateBasedResolver<TSource>(r => resolver((TSource)r.Value))));
+            var config = new ValueResolverConfiguration(valueResolver, typeof(IValueResolver<TSource, TDestination, TMember>));
+
+            PropertyMapActions.Add(pm => pm.ValueResolverConfig = config);
         }
 
-        public void ResolveUsing(Func<ResolutionResult, object> resolver)
+        public void ResolveUsing<TSourceMember>(IMemberValueResolver<TSource, TDestination, TSourceMember, TMember> valueResolver, Expression<Func<TSource, TSourceMember>> sourceMember)
         {
-            _propertyMapActions.Add(pm => pm.AssignCustomValueResolver(new DelegateBasedResolver<TSource>(resolver)));
+            var config = new ValueResolverConfiguration(valueResolver, typeof(IMemberValueResolver<TSource, TDestination, TSourceMember, TMember>))
+            {
+                SourceMember = sourceMember
+            };
+
+            PropertyMapActions.Add(pm => pm.ValueResolverConfig = config);
         }
 
-        public void ResolveUsing(Func<ResolutionResult, TSource, object> resolver)
+        public void ResolveUsing<TResult>(Func<TSource, TResult> resolver)
         {
-            _propertyMapActions.Add(pm => pm.AssignCustomValueResolver(new DelegateBasedResolver<TSource>(r => resolver(r, (TSource)r.Value))));
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, ResolutionContext, TResult>> expr = (src, dest, destMember, ctxt) => resolver(src);
+
+                pm.CustomResolver = expr;
+            });
         }
 
-        public void MapFrom<TMember>(Expression<Func<TSource, TMember>> sourceMember)
+        public void ResolveUsing<TResult>(Func<TSource, TDestination, TResult> resolver)
         {
-            _propertyMapActions.Add(pm => pm.SetCustomValueResolverExpression(sourceMember));
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, ResolutionContext, TResult>> expr = (src, dest, destMember, ctxt) => resolver(src, dest);
+
+                pm.CustomResolver = expr;
+            });
         }
 
-        public void MapFrom<TMember>(string sourceMember)
+        public void ResolveUsing<TResult>(Func<TSource, TDestination, TMember, TResult> resolver)
         {
-            var members = _sourceType.GetMember(sourceMember);
-            if (!members.Any())
-                throw new AutoMapperConfigurationException($"Unable to find source member {sourceMember} on type {_sourceType.FullName}");
-            if (members.Skip(1).Any())
-                throw new AutoMapperConfigurationException($"Source member {sourceMember} is ambiguous on type {_sourceType.FullName}");
-            var member = members.Single();
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, ResolutionContext, TResult>> expr = (src, dest, destMember, ctxt) => resolver(src, dest, destMember);
 
-            var par = Expression.Parameter(typeof(TSource));
-            var prop = typeof(TSource) != _sourceType ? (Expression) Expression.Property(Expression.Convert(par, _sourceType), sourceMember) : Expression.Property(par, sourceMember);
-            if (typeof (TMember) != member.GetMemberType())
-                prop = Expression.Convert(prop, typeof(TMember));
+                pm.CustomResolver = expr;
+            });
+        }
 
-            var lambda = Expression.Lambda<Func<TSource, TMember>>(prop, par);
+        public void ResolveUsing<TResult>(Func<TSource, TDestination, TMember, ResolutionContext, TResult> resolver)
+        {
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, ResolutionContext, TResult>> expr = (src, dest, destMember, ctxt) => resolver(src, dest, destMember, ctxt);
 
-            _propertyMapActions.Add(pm => pm.SetCustomValueResolverExpression(lambda));
+                pm.CustomResolver = expr;
+            });
+        }
+
+        public void MapFrom<TSourceMember>(Expression<Func<TSource, TSourceMember>> sourceMember)
+        {
+            PropertyMapActions.Add(pm => pm.SetCustomValueResolverExpression(sourceMember));
         }
 
         public void MapFrom(string sourceMember)
         {
-            MapFrom<object>(sourceMember);
+            var memberInfo = _sourceType.GetMember(sourceMember).FirstOrDefault();
+            if (memberInfo == null)
+                throw new AutoMapperConfigurationException($"Cannot find member {sourceMember} of type {_sourceType}");
+
+            PropertyMapActions.Add(pm => pm.CustomSourceMemberName = sourceMember);
         }
 
         public void UseValue<TValue>(TValue value)
         {
-            MapFrom(src => value);
+            MapFrom(s => value);
         }
 
-        public void UseValue(object value)
+        public void Condition(Func<TSource, TDestination, TMember, TMember, ResolutionContext, bool> condition)
         {
-            _propertyMapActions.Add(pm => pm.AssignCustomValueResolver(new DelegateBasedResolver<TSource>(src => value)));
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, TMember, ResolutionContext, bool>> expr =
+                    (src, dest, srcMember, destMember, ctxt) => condition(src, dest, srcMember, destMember, ctxt);
+
+                pm.Condition = expr;
+            });
+        }
+
+        public void Condition(Func<TSource, TDestination, TMember, TMember, bool> condition)
+        {
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, TMember, ResolutionContext, bool>> expr =
+                    (src, dest, srcMember, destMember, ctxt) => condition(src, dest, srcMember, destMember);
+
+                pm.Condition = expr;
+            });
+        }
+
+        public void Condition(Func<TSource, TDestination, TMember, bool> condition)
+        {
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, TMember, ResolutionContext, bool>> expr =
+                    (src, dest, srcMember, destMember, ctxt) => condition(src, dest, srcMember);
+
+                pm.Condition = expr;
+            });
+        }
+
+        public void Condition(Func<TSource, TDestination, bool> condition)
+        {
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, TMember, ResolutionContext, bool>> expr =
+                    (src, dest, srcMember, destMember, ctxt) => condition(src, dest);
+
+                pm.Condition = expr;
+            });
         }
 
         public void Condition(Func<TSource, bool> condition)
         {
-            Condition(context => condition((TSource)context.Parent.SourceValue));
-        }
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, TDestination, TMember, TMember, ResolutionContext, bool>> expr =
+                    (src, dest, srcMember, destMember, ctxt) => condition(src);
 
-        public void Condition(Func<ResolutionContext, bool> condition)
-        {
-            _propertyMapActions.Add(pm => pm.ApplyCondition(condition));
+                pm.Condition = expr;
+            });
         }
 
         public void PreCondition(Func<TSource, bool> condition)
         {
-            PreCondition(context => condition((TSource)context.Parent.SourceValue));
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, ResolutionContext, bool>> expr =
+                    (src, ctxt) => condition(src);
+
+                pm.PreCondition = expr;
+            });
         }
 
         public void PreCondition(Func<ResolutionContext, bool> condition)
         {
-            _propertyMapActions.Add(pm => pm.ApplyPreCondition(condition));
+            PropertyMapActions.Add(pm =>
+            {
+                Expression<Func<TSource, ResolutionContext, bool>> expr =
+                    (src, ctxt) => condition(ctxt);
+
+                pm.PreCondition = expr;
+            });
         }
 
         public void ExplicitExpansion()
         {
-            _propertyMapActions.Add(pm => pm.ExplicitExpansion = true);
+            PropertyMapActions.Add(pm => pm.ExplicitExpansion = true);
         }
 
         public void Ignore()
         {
-            _propertyMapActions.Add(pm => pm.Ignore());
+            PropertyMapActions.Add(pm => pm.Ignored = true);
+        }
+
+        public void AllowNull()
+        {
+            PropertyMapActions.Add(pm => pm.AllowNull = true);
         }
 
         public void UseDestinationValue()
         {
-            _propertyMapActions.Add(pm => pm.UseDestinationValue = true);
-        }
-
-        public void DoNotUseDestinationValue()
-        {
-            _propertyMapActions.Add(pm => pm.UseDestinationValue = false);
+            PropertyMapActions.Add(pm => pm.UseDestinationValue = true);
         }
 
         public void SetMappingOrder(int mappingOrder)
         {
-            _propertyMapActions.Add(pm => pm.SetMappingOrder(mappingOrder));
+            PropertyMapActions.Add(pm => pm.MappingOrder = mappingOrder);
         }
 
         public void Configure(TypeMap typeMap)
         {
-            var propertyMap = typeMap.FindOrCreatePropertyMapFor(_destinationMember);
+            var destMember = _destinationMember;
 
-            foreach (var action in _propertyMapActions)
+            if (destMember.DeclaringType.IsGenericType())
+            {
+                destMember = typeMap.DestinationTypeDetails.PublicReadAccessors.Single(m => m.Name == destMember.Name);
+            }
+
+            var propertyMap = typeMap.FindOrCreatePropertyMapFor(destMember);
+
+            foreach (var action in PropertyMapActions)
             {
                 action(propertyMap);
             }
